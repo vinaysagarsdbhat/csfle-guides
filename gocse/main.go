@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -12,7 +13,6 @@ import (
 	"github.com/mongodb-university/csfle-guides/gocse/csfle"
 	"github.com/mongodb-university/csfle-guides/gocse/kms"
 	"github.com/mongodb-university/csfle-guides/gocse/patient"
-	"github.com/mongodb-university/csfle-guides/gocse/schema"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -20,7 +20,7 @@ import (
 
 const (
 	keyVaultNamespace = "encryption.__keyVault"
-	uri               = "mongodb://localhost:27017"
+	uri               = "mongodb+srv://testmongo:testmongo@cluster0.nre0n.mongodb.net/abc?retryWrites=true&w=majority"
 	dbName            = "medicalRecords"
 	collName          = "patients"
 )
@@ -50,13 +50,17 @@ func getMasterKey() []byte {
 func main() {
 	err := godotenv.Load()
 
-	// preferredProvider := kms.AWSProvider()
+	preferredProvider := kms.AWSProvider()
 	// preferredProvider := kms.AzureProvider()
 	// preferredProvider := kms.GCPProvider()
-	preferredProvider := kms.LocalProvider(localMasterKey())
+	// preferredProvider := kms.LocalProvider(localMasterKey())
 
 	// getting the base64 representation of a new data key
-	dataKeyBase64, err := csfle.GetDataKey(keyVaultNamespace, uri, preferredProvider)
+	clientEncryption, err := csfle.GetClientEncryption(keyVaultNamespace, uri, preferredProvider)
+	//dataKey, clientEncryption, err := csfle.GetDataKey(keyVaultNamespace, uri, preferredProvider)
+	defer func() {
+		_ = clientEncryption.Close(context.TODO())
+	}()
 	if err != nil {
 		log.Fatalf("problem during data key creation: %v", err)
 	}
@@ -65,15 +69,12 @@ func main() {
 	// the driver only uses this for encryption information,
 	// not to enforce schema constraints
 
-	s, err := schema.CreateJSONSchema(dataKeyBase64)
 	if err != nil {
 		log.Panic(err)
 	}
-	schemaMap := map[string]interface{}{
-		dbName + "." + collName: s,
-	}
+
 	// get a client with auto encryption using the new schema
-	eclient, err := csfle.EncryptedClient(keyVaultNamespace, uri, schemaMap, preferredProvider)
+	eclient, err := csfle.EncryptedClient(keyVaultNamespace, uri, preferredProvider)
 	if err != nil {
 		log.Panic(err)
 	}
@@ -81,7 +82,17 @@ func main() {
 	defer func() {
 		_ = eclient.Disconnect(context.TODO())
 	}()
+	encryptionOpts := options.Encrypt().
+		SetAlgorithm("AEAD_AES_256_CBC_HMAC_SHA_512-Deterministic").
+		SetKeyAltName("ongev")
+	rawValueType, rawValueData, err := bson.MarshalValue("123456789")
+	fmt.Println(rawValueType)
+	rawValue := bson.RawValue{Type: rawValueType, Value: rawValueData}
+	fmt.Println(rawValue)
+	encryptedField, err := clientEncryption.Encrypt(context.TODO(), rawValue, encryptionOpts)
+	fmt.Println(encryptedField)
 	doc := patient.GetExamplePatient()
+	doc.SSN = encryptedField
 	// drop the collection and insert a new document with the encrypted client
 	if err := csfle.InsertTestData(eclient, doc, dbName, collName); err != nil {
 		log.Panic(err)
@@ -105,9 +116,31 @@ func main() {
 // the find operation with to illustrate CSFLE
 func FindDocument(client *mongo.Client, dbName, collName string) {
 	collection := client.Database(dbName).Collection(collName)
-	res, err := collection.FindOne(context.TODO(), bson.D{}).DecodeBytes()
+	cur, err := collection.Find(context.TODO(), bson.D{{}})
 	if err != nil {
-		log.Fatalf("FindOne error: %v", err)
+		log.Fatal(err)
 	}
-	fmt.Println(res)
+
+	for cur.Next(context.TODO()) {
+		//Create a value into which the single document can be decoded
+		var ele patient.Patient
+		err := cur.Decode(&ele)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		b, err := json.Marshal(ele)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		fmt.Println(string(b))
+	}
+
+	if err := cur.Err(); err != nil {
+		log.Fatal(err)
+	}
+
+	//Close the cursor once finished
+	cur.Close(context.TODO())
 }

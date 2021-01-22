@@ -227,12 +227,12 @@ type AWS struct {
 // location to use AWS as a KMS
 func AWSProvider() *AWS {
 	// aws kms provider credentials
-	awsAccessKeyID := GetCheckedEnv("FLE_AWS_ACCESS_KEY")
-	awsSecretAccessKey := GetCheckedEnv("FLE_AWS_SECRET_ACCESS_KEY")
+	awsAccessKeyID := "AKIAT3JXUVNDG56GTYUB"
+	awsSecretAccessKey := "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"
 
 	// aws data key opts
-	awsKeyARN := GetCheckedEnv("FLE_AWS_KEY_ARN")
-	awsKeyRegion := GetCheckedEnv("FLE_AWS_KEY_REGION")
+	awsKeyARN := "arn:aws:kms:us-east-2:264794057542:key/f14bbd16-e4c7-4979-b98b-d98e1b2243eb"
+	awsKeyRegion := "us-east-2"
 
 	return &AWS{
 		credentials: awsKMSCredentials{

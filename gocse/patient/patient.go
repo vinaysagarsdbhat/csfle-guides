@@ -12,7 +12,7 @@ type insurance struct {
 
 type Patient struct {
 	Name           string          `bson:"name"`
-	SSN            int             `bson:"ssn"`
+	SSN            interface{}     `bson:"ssn"`
 	BloodType      string          `bson:"bloodType"`
 	medicalRecords []medicalRecord `bson:"medicalRecords"`
 	insurance      insurance       `bson:"insurance"`
